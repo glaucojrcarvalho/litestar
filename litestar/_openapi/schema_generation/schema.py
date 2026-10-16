@@ -454,7 +454,7 @@ class SchemaCreator:
         # nullable scalars are expressed as 'type: [X, null]' rather than 'oneOf: [X, null]',
         # which tooling handles better (e.g. Swagger UI file inputs). refs, unions, enums and
         # const cannot preserve their semantics in a type array; structured types could, but
-        # downstream tooling support is weak, so both keep the oneOf encoding.
+        # downstream tooling support is weak, so both keep a composition with null.
         if (
             isinstance(schema_or_reference, Schema)
             and isinstance(schema_type := schema_or_reference.type, OpenAPIType)
@@ -468,6 +468,10 @@ class SchemaCreator:
             schema = copy(schema_or_reference)
             schema.type = [schema_type, OpenAPIType.NULL]
             return schema
+
+        # Optional unions must preserve anyOf semantics even when their branches overlap.
+        if isinstance(schema_or_reference, Schema) and isinstance(schema_or_reference.any_of, list):
+            return Schema(any_of=[*schema_or_reference.any_of, Schema(type=OpenAPIType.NULL)])
 
         if isinstance(schema_or_reference, Schema) and isinstance(schema_or_reference.one_of, list):
             result = schema_or_reference.one_of
@@ -487,7 +491,7 @@ class SchemaCreator:
         """
         inner_types = (f for f in (field_definition.inner_types or []) if not self.is_undefined(f.annotation))
         values = list(map(self.for_field_definition, inner_types))
-        return Schema(one_of=values)
+        return Schema(any_of=values)
 
     def for_object_type(self, field_definition: FieldDefinition) -> Schema:
         """Create schema for object types (dict, Mapping, list, Sequence etc.) types.

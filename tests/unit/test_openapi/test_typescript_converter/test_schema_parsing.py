@@ -62,6 +62,11 @@ def test_parse_schema_handle_one_of() -> None:
     )
 
 
+def test_parse_schema_handle_any_of() -> None:
+    result = parse_schema(Schema(any_of=[string_schema, number_schema, nullable_integer_schema]))
+    assert result.write() == "null | number | number | string"
+
+
 def test_parse_schema_handle_array() -> None:
     result = parse_schema(array_schema)
     assert (

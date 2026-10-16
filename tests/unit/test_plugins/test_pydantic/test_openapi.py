@@ -150,10 +150,10 @@ def test_create_collection_constrained_field_schema_sub_fields(
         assert schema.max_items == 10  # pyright: ignore[reportAttributeAccessIssue]
         assert schema.min_items == 1  # pyright: ignore[reportAttributeAccessIssue]
         assert isinstance(schema.items, Schema)  # pyright: ignore[reportAttributeAccessIssue]
-        assert schema.items.one_of is not None  # pyright: ignore[reportAttributeAccessIssue]
+        assert schema.items.any_of is not None  # pyright: ignore[reportAttributeAccessIssue]
 
         # https://github.com/litestar-org/litestar/pull/2570#issuecomment-1788122570
-        assert {_get_schema_type(s) for s in schema.items.one_of} == {OpenAPIType.STRING, OpenAPIType.INTEGER}  # pyright: ignore[reportAttributeAccessIssue]
+        assert {_get_schema_type(s) for s in schema.items.any_of} == {OpenAPIType.STRING, OpenAPIType.INTEGER}  # pyright: ignore[reportAttributeAccessIssue]
 
     # set should have uniqueItems always
     assert model_schema.properties["set_field"].unique_items  # pyright: ignore[reportAttributeAccessIssue]
@@ -311,7 +311,7 @@ def test_spec_generation(cls: Any) -> None:
                         "items": {"type": "object", "additionalProperties": {"type": "string"}},
                     },
                 },
-                "union": {"oneOf": [{"type": "integer"}, {"items": {"type": "string"}, "type": "array"}]},
+                "union": {"anyOf": [{"type": "integer"}, {"items": {"type": "string"}, "type": "array"}]},
                 "pets": {
                     "oneOf": [
                         {

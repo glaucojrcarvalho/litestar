@@ -507,14 +507,14 @@ def test_schema_generation_with_generic_classes_constrained() -> None:
     assert properties
     assert properties["bound"] == Schema(type=OpenAPIType.INTEGER)
     assert properties["constrained"] == Schema(
-        one_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING)]
+        any_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING)]
     )
-    assert properties["union"] == Schema(one_of=[Schema(type=OpenAPIType.OBJECT), Schema(type=OpenAPIType.BOOLEAN)])
+    assert properties["union"] == Schema(any_of=[Schema(type=OpenAPIType.OBJECT), Schema(type=OpenAPIType.BOOLEAN)])
     assert properties["union_constrained"] == Schema(
-        one_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING), Schema(type=OpenAPIType.BOOLEAN)]
+        any_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING), Schema(type=OpenAPIType.BOOLEAN)]
     )
     assert properties["union_bound"] == Schema(
-        one_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.BOOLEAN)]
+        any_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.BOOLEAN)]
     )
 
 
@@ -548,7 +548,7 @@ def test_schema_tuple_with_union() -> None:
     schema = get_schema_for_field_definition(FieldDefinition.from_annotation(tuple[int, Union[int, str]]))
     assert schema.prefix_items == [
         Schema(type=OpenAPIType.INTEGER),
-        Schema(one_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING)]),
+        Schema(any_of=[Schema(type=OpenAPIType.INTEGER), Schema(type=OpenAPIType.STRING)]),
     ]
 
 
@@ -719,7 +719,7 @@ def test_type_union(base_type: type) -> None:
     schema = get_schema_for_field_definition(
         FieldDefinition.from_kwarg(name="Lookup", annotation=Union[ModelA, ModelB])
     )
-    assert schema.one_of == [
+    assert schema.any_of == [
         Reference(ref="#/components/schemas/tests_unit_test_openapi_test_schema_test_type_union.ModelA"),
         Reference(ref="#/components/schemas/tests_unit_test_openapi_test_schema_test_type_union.ModelB"),
     ]
@@ -749,11 +749,42 @@ def test_type_union_with_none(base_type: type) -> None:
     schema = get_schema_for_field_definition(
         FieldDefinition.from_kwarg(name="Lookup", annotation=Union[ModelA, ModelB, None])
     )
-    assert schema.one_of == [
+    assert schema.any_of == [
         Reference(ref="#/components/schemas/tests_unit_test_openapi_test_schema_test_type_union_with_none.ModelA"),
         Reference("#/components/schemas/tests_unit_test_openapi_test_schema_test_type_union_with_none.ModelB"),
         Schema(type=OpenAPIType.NULL),
     ]
+
+
+def test_union_with_overlapping_enum_and_str_uses_any_of() -> None:
+    class Status(StrEnum):
+        RUNNING = "running"
+        DONE = "done"
+
+    schema = get_schema_for_field_definition(FieldDefinition.from_annotation(Status | str))
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is None
+    assert schema.any_of is not None
+    assert len(schema.any_of) == 2
+    assert isinstance(schema.any_of[0], Reference)
+    assert schema.any_of[1] == Schema(type=OpenAPIType.STRING)
+
+
+def test_optional_overlapping_union_uses_any_of_with_null() -> None:
+    class Status(StrEnum):
+        RUNNING = "running"
+        DONE = "done"
+
+    schema = get_schema_for_field_definition(FieldDefinition.from_annotation(Status | str | None))
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is None
+    assert schema.any_of is not None
+    assert len(schema.any_of) == 3
+    assert isinstance(schema.any_of[0], Reference)
+    assert schema.any_of[1] == Schema(type=OpenAPIType.STRING)
+    assert schema.any_of[2] == Schema(type=OpenAPIType.NULL)
 
 
 def test_default_only_on_field_definition() -> None:
@@ -951,7 +982,7 @@ def test_optional_reference_field_keeps_one_of() -> None:
     assert Schema(type=OpenAPIType.NULL) in one_of
 
 
-def test_optional_union_keeps_one_of() -> None:
+def test_optional_union_keeps_any_of() -> None:
     @dataclass
     class Model:
         value: str | int | None
@@ -960,10 +991,10 @@ def test_optional_union_keeps_one_of() -> None:
     assert properties is not None
     value = properties["value"]
     assert isinstance(value, Schema)
-    one_of = value.one_of
+    any_of = value.any_of
 
-    assert one_of is not None
-    assert Schema(type=OpenAPIType.NULL) in one_of
+    assert any_of is not None
+    assert Schema(type=OpenAPIType.NULL) in any_of
 
 
 def test_optional_enum_keeps_one_of() -> None:
@@ -1134,7 +1165,7 @@ def test_union_of_enums() -> None:
     schema = creator.for_field_definition(FieldDefinition.from_annotation(Union[Color, Size]))
 
     assert isinstance(schema, Schema)
-    assert schema.one_of is not None
-    assert len(schema.one_of) == 2
+    assert schema.any_of is not None
+    assert len(schema.any_of) == 2
     components = creator.schema_registry.generate_components_schemas()
     assert {tuple(v.enum or ()) for v in components.values()} == {("red",), ("small",)}

@@ -289,8 +289,8 @@ def test_upload_file_mixed_union_keeps_alternatives() -> None:
     schema = app.openapi_schema.to_schema()
     body_schema = schema["paths"]["/mixed-upload"]["post"]["requestBody"]["content"]["multipart/form-data"]["schema"]
 
-    assert {"type": "string"} in body_schema["oneOf"]
-    assert {"type": "null"} in body_schema["oneOf"]
+    assert {"type": "string"} in body_schema["anyOf"]
+    assert {"type": "null"} in body_schema["anyOf"]
 
 
 def test_nested_optional_upload_file_keeps_null_alternative() -> None:

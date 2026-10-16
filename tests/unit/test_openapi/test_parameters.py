@@ -89,24 +89,24 @@ def test_create_parameters(person_controller: type[Controller]) -> None:
     assert name.param_in == ParamType.QUERY
     assert name.name == "name"
     assert is_schema_value(name.schema)
-    assert name.schema.one_of
-    assert len(name.schema.one_of) == 3
+    assert name.schema.any_of
+    assert len(name.schema.any_of) == 3
     assert name.required
     assert name.schema.examples
 
     assert from_date.param_in == ParamType.QUERY
     assert from_date.name == "from_date"
     assert is_schema_value(from_date.schema)
-    assert from_date.schema.one_of
-    assert len(from_date.schema.one_of) == 4
+    assert from_date.schema.any_of
+    assert len(from_date.schema.any_of) == 4
     assert not from_date.required
     assert from_date.schema.examples
 
     assert to_date.param_in == ParamType.QUERY
     assert to_date.name == "to_date"
     assert is_schema_value(to_date.schema)
-    assert to_date.schema.one_of
-    assert len(to_date.schema.one_of) == 4
+    assert to_date.schema.any_of
+    assert len(to_date.schema.any_of) == 4
     assert not to_date.required
     assert to_date.schema.examples
 
@@ -114,7 +114,7 @@ def test_create_parameters(person_controller: type[Controller]) -> None:
     assert gender.name == "gender"
     assert is_schema_value(gender.schema)
     assert gender.schema == Schema(
-        one_of=[
+        any_of=[
             Reference(ref="#/components/schemas/tests_unit_test_openapi_utils_Gender"),
             Schema(
                 type=OpenAPIType.ARRAY,
