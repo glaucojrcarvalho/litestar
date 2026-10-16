@@ -67,6 +67,149 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
+def test_pydantic_annotated_union_discriminator_is_in_openapi_schema() -> None:
+    """The tag used for Pydantic union validation should appear in the OpenAPI oneOf."""
+    import pydantic
+
+    from litestar.plugins.pydantic import PydanticSchemaPlugin
+
+    class First(pydantic.BaseModel):
+        type: Literal["first"] = "first"
+
+    class Second(pydantic.BaseModel):
+        type: Literal["second"] = "second"
+
+    union = Annotated[First | Second, pydantic.Discriminator("type")]
+    schema = get_schema_for_field_definition(
+        FieldDefinition.from_annotation(union), plugins=[PydanticSchemaPlugin()]
+    )
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is not None
+    assert all(isinstance(member, Reference) for member in schema.one_of)
+    assert schema.discriminator is not None
+    assert schema.discriminator.property_name == "type"
+    assert schema.discriminator.mapping == {
+        "first": schema.one_of[0].ref,
+        "second": schema.one_of[1].ref,
+    }
+
+
+def test_pydantic_discriminator_in_openapi_response_document() -> None:
+    """The response schema should expose a discriminator in the serialized OpenAPI document."""
+    import pydantic
+
+    class First(pydantic.BaseModel):
+        type: Literal["first"] = "first"
+
+    class Second(pydantic.BaseModel):
+        type: Literal["second"] = "second"
+
+    @get("/", signature_namespace={"First": First, "Second": Second})
+    def handler() -> Annotated[First | Second, pydantic.Discriminator("type")]:
+        return First()
+
+    document = Litestar([handler]).openapi_schema.to_schema()
+    response = document["paths"]["/"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert response["discriminator"]["propertyName"] == "type"
+    mapping = response["discriminator"]["mapping"]
+    assert set(mapping) == {"first", "second"}
+    assert set(mapping.values()) == {part["$ref"] for part in response["oneOf"]}
+
+
+def test_pydantic_discriminator_with_same_named_model_components() -> None:
+    """Mapping refs must follow component-name disambiguation in generated OpenAPI."""
+    import pydantic
+
+    class Alpha:
+        class Choice(pydantic.BaseModel):
+            kind: Literal["alpha"] = "alpha"
+
+    class Beta:
+        class Choice(pydantic.BaseModel):
+            kind: Literal["beta"] = "beta"
+
+    @get("/", signature_namespace={"Alpha": Alpha, "Beta": Beta})
+    def handler() -> Annotated[Alpha.Choice | Beta.Choice, pydantic.Discriminator("kind")]:
+        return Alpha.Choice()
+
+    document = Litestar([handler]).openapi_schema.to_schema()
+    response = document["paths"]["/"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert response["discriminator"]["propertyName"] == "kind"
+    assert set(response["discriminator"]["mapping"]) == {"alpha", "beta"}
+    assert set(response["discriminator"]["mapping"].values()) == {part["$ref"] for part in response["oneOf"]}
+
+
+def test_pydantic_union_discriminator_maps_multiple_literal_values() -> None:
+    import pydantic
+
+    from litestar.plugins.pydantic import PydanticSchemaPlugin
+
+    class Cat(pydantic.BaseModel):
+        kind: Literal["cat"]
+
+    class Lizard(pydantic.BaseModel):
+        kind: Literal["lizard", "reptile"]
+
+    union = Annotated[Cat | Lizard, pydantic.Field(discriminator="kind")]
+    schema = get_schema_for_field_definition(
+        FieldDefinition.from_annotation(union), plugins=[PydanticSchemaPlugin()]
+    )
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is not None
+    assert all(isinstance(member, Reference) for member in schema.one_of)
+    assert schema.discriminator is not None
+    assert schema.discriminator.property_name == "kind"
+    assert schema.discriminator.mapping == {
+        "cat": schema.one_of[0].ref,
+        "lizard": schema.one_of[1].ref,
+        "reptile": schema.one_of[1].ref,
+    }
+
+
+def test_untagged_pydantic_union_has_no_discriminator() -> None:
+    import pydantic
+
+    from litestar.plugins.pydantic import PydanticSchemaPlugin
+
+    class First(pydantic.BaseModel):
+        kind: Literal["first"]
+
+    class Second(pydantic.BaseModel):
+        kind: Literal["second"]
+
+    schema = get_schema_for_field_definition(
+        FieldDefinition.from_annotation(First | Second), plugins=[PydanticSchemaPlugin()]
+    )
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is not None
+    assert schema.discriminator is None
+
+
+def test_callable_pydantic_discriminator_does_not_create_invalid_openapi_discriminator() -> None:
+    import pydantic
+
+    from litestar.plugins.pydantic import PydanticSchemaPlugin
+
+    class First(pydantic.BaseModel):
+        kind: Literal["first"]
+
+    class Second(pydantic.BaseModel):
+        kind: Literal["second"]
+
+    union = Annotated[First | Second, pydantic.Discriminator(lambda value: value["kind"])]
+    schema = get_schema_for_field_definition(
+        FieldDefinition.from_annotation(union), plugins=[PydanticSchemaPlugin()]
+    )
+
+    assert isinstance(schema, Schema)
+    assert schema.one_of is not None
+    assert schema.discriminator is None
+
+
 def test_process_schema_result() -> None:
     test_str = "abc"
     kwarg_definition = ParameterKwarg(
