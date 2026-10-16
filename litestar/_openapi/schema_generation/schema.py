@@ -33,6 +33,7 @@ from litestar._openapi.schema_generation.utils import (
 )
 from litestar.datastructures import SecretBytes, SecretString, UploadFile
 from litestar.exceptions import ImproperlyConfiguredException
+from litestar.openapi.spec.discriminator import Discriminator
 from litestar.openapi.spec.enums import OpenAPIFormat, OpenAPIType
 from litestar.openapi.spec.reference import Reference
 from litestar.openapi.spec.schema import Schema, SchemaDataContainer
@@ -216,6 +217,22 @@ def create_schema_for_annotation(annotation: Any) -> Schema:
     """
 
     return copy(TYPE_MAP[annotation]) if annotation in TYPE_MAP else Schema()
+
+
+class _ReferenceAwareDiscriminator(Discriminator):
+    """Keep discriminator mappings aligned with component reference renaming."""
+
+    def __init__(self, property_name: str, mapping: dict[str, Reference]) -> None:
+        super().__init__(
+            property_name=property_name,
+            mapping={tag: reference.ref for tag, reference in mapping.items()},
+        )
+        self._references = mapping
+
+    def to_schema(self) -> dict[str, Any]:
+        # Component paths can be shortened or disambiguated after union schema creation.
+        self.mapping = {tag: reference.ref for tag, reference in self._references.items()}
+        return super().to_schema()
 
 
 class SchemaCreator:
@@ -487,7 +504,43 @@ class SchemaCreator:
         """
         inner_types = (f for f in (field_definition.inner_types or []) if not self.is_undefined(f.annotation))
         values = list(map(self.for_field_definition, inner_types))
-        return Schema(one_of=values)
+        result = Schema(one_of=values)
+
+        # Annotated unions can carry a Pydantic string discriminator. Preserve
+        # the relationship between each literal tag and its component reference.
+        discriminator = next(
+            (
+                name
+                for metadata in field_definition.metadata
+                if isinstance(name := getattr(metadata, "discriminator", None), str)
+            ),
+            None,
+        )
+        if discriminator is None:
+            return result
+
+        mapping: dict[str, Reference] = {}
+        for reference in values:
+            if not isinstance(reference, Reference):
+                return result
+            component = self.schema_registry.from_reference(reference).schema
+            if not component.properties or not isinstance(
+                tag_schema := component.properties.get(discriminator), Schema
+            ):
+                return result
+
+            tag_values = [tag_schema.const] if tag_schema.const is not None else tag_schema.enum
+            if not tag_values:
+                return result
+
+            for tag in tag_values:
+                label = str(tag)
+                if label in mapping:
+                    return result
+                mapping[label] = reference
+
+        result.discriminator = _ReferenceAwareDiscriminator(property_name=discriminator, mapping=mapping)
+        return result
 
     def for_object_type(self, field_definition: FieldDefinition) -> Schema:
         """Create schema for object types (dict, Mapping, list, Sequence etc.) types.
